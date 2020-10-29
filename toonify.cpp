@@ -249,23 +249,48 @@ int main(int argc, char** argv) {
                          palette);
 
     static const double MIN_AREA = 0.1;
-
-    // Print palette and assing color id
     std::cout << "rows: " << img.rows << std::endl;
     std::cout << "cols: " << img.cols << std::endl;
     uint64_t area = img.rows * img.cols;
+
+    uint64_t count = 0;
+    for (auto& color : palette) {
+        double color_area = (color.second * 100.0) / area;
+        if (color_area > MIN_AREA) ++count;
+    }
+
+    static const uint64_t PALETTE_SIZE = 150;
+    static const uint64_t OFFSET = 50;
+    // Print palette and assing color id
+    cv::Mat3b palette_img(count * PALETTE_SIZE, PALETTE_SIZE + OFFSET);
+    palette_img.setTo(cv::Scalar(255, 255, 255));
     uint64_t id = 1;
     for (auto& color : palette) {
         double color_area = (color.second * 100.0) / area;
         if (color_area > MIN_AREA) {
             color.second = id;
-            id += 1;
+
             std::cout << "Color " << color.second << " : rgb("
                       << int(color.first[2]) << ", " << int(color.first[1])
                       << ", " << int(color.first[0]) << ")"
                       << " \t - Area: " << color_area << "%" << std::endl;
+
+            uint64_t base = (id - 1) * PALETTE_SIZE;
+            for (uint64_t i = 0; i != PALETTE_SIZE; ++i) {
+                for (uint64_t j = 0; j != PALETTE_SIZE; ++j) {
+                    palette_img.at<cv::Vec3b>(base + i, j + OFFSET) =
+                        color.first;
+                }
+                cv::putText(palette_img, std::to_string(id),
+                            cv::Point(0, base + PALETTE_SIZE / 2),
+                            cv::FONT_HERSHEY_PLAIN, 2, CV_RGB(0, 0, 0), 2);
+            }
+
+            id += 1;
         }
     }
+
+    cv::imwrite(filename + ".palette.jpeg", palette_img);
 
     std::vector<std::vector<int>> labels2d;
     reshape2d(labels, labels2d, img.rows, img.cols);
