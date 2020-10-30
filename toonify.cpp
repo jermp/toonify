@@ -66,15 +66,16 @@ void print_color_numbers(cv::Mat3b& dst, int rows, int cols,
 
         auto it = palette.find(color);
         assert(it != palette.end());
-
         auto color_id = (*it).second;
-        std::cout << "color_id " << color_id << std::endl;
+        std::cout << "region " << i << ": color_id " << color_id << std::endl;
 
-        std::cout << "putting centroid " << i << std::endl;
         cv::putText(dst, std::to_string(color_id),
                     cv::Point(centroid.second, centroid.first),
                     cv::FONT_HERSHEY_PLAIN, font_scale, CV_RGB(255, 0, 0),
                     thickness);
+
+        // cv::circle(dst, cv::Point(centroid.second, centroid.first), 8,
+        //            cv::Scalar(0, 255, 0), -1);
     }
 }
 
@@ -187,15 +188,61 @@ void visit(std::vector<std::vector<int>> const& labels2d,
     }
 }
 
-point_type compute_centroid(std::vector<point_type> const& polygon) {
-    double sum_x = 0.0;
-    double sum_y = 0.0;
-    for (auto x : polygon) {
-        sum_x += x.first;
-        sum_y += x.second;
+point_type compute_centroid(int rows, int cols, uint64_t i,
+                            std::vector<point_type> const& region) {
+    cv::Mat3b tmp(rows, cols);
+    tmp.setTo(cv::Scalar(0, 0, 0));
+    for (auto point : region) {
+        tmp.at<cv::Vec3b>(point.first, point.second) = cv::Vec3b(255, 255, 255);
     }
-    return {sum_x / polygon.size(), sum_y / polygon.size()};
+
+    // NOTE: the solution based on moments can fail to place the centroid inside
+    // the region cv::Mat tmp2 = tmp; cv::Mat gray; cv::cvtColor(tmp2, gray,
+    // cv::COLOR_BGR2GRAY); cv::Moments m = cv::moments(gray, true); cv::Point
+    // center(m.m10 / m.m00, m.m01 / m.m00); std::cout << cv::Mat(center) <<
+    // std::endl; cv::circle(tmp2, center, 8, cv::Scalar(0, 0, 255), -1);
+    // imwrite("./annotated" + std::to_string(i) + ".jpeg", tmp2);
+
+    int K = 10;
+    if (region.size() < K) K = region.size();
+    const static int ITERATIONS = 1;
+    std::vector<cv::Point2f> data;
+    data.reserve(region.size());
+    for (auto p : region) { data.emplace_back(p.second, p.first); }
+    std::vector<int> labels;
+    std::vector<cv::Point2f> centers;
+    labels.reserve(region.size());
+    cv::kmeans(data, K, labels, cv::TermCriteria(), ITERATIONS,
+               cv::KMEANS_PP_CENTERS, centers);
+
+    uint64_t index = 0;
+    for (auto p : centers) {
+        // cv::circle(tmp2, p, 8, cv::Scalar(0, 255, 0), -1);
+        // std::cout << p << std::endl;
+        if (tmp(p.x, p.y) == cv::Vec3b(0, 0, 0)) {
+            // std::cout << "point is in white region" << std::endl;
+            // cv::circle(tmp2, p, 8, cv::Scalar(0, 255, 0), -1);
+            break;
+        }
+        // else {
+        //     std::cout << "point is in BLACK region" << std::endl;
+        // }
+        ++index;
+    }
+
+    auto center = centers[index];
+    return {center.y, center.x};
 }
+
+// point_type compute_centroid(std::vector<point_type> const& polygon) {
+//     double sum_x = 0.0;
+//     double sum_y = 0.0;
+//     for (auto x : polygon) {
+//         sum_x += x.first;
+//         sum_y += x.second;
+//     }
+//     return {sum_x / polygon.size(), sum_y / polygon.size()};
+// }
 
 void auto_canny(cv::Mat3b& src, cv::Mat& canny, std::string const& filename) {
     cv::Mat detected_edges;
@@ -320,7 +367,8 @@ int main(int argc, char** argv) {
         // std::cout << color_area << std::endl;
         if (color_area > MIN_AREA / 10) {
             // std::cout << region.size() << " points in region" << std::endl;
-            auto centroid = compute_centroid(region);
+            // auto centroid = compute_centroid(region);
+            auto centroid = compute_centroid(img.rows, img.cols, i, region);
             centroids.push_back(centroid);
             auto first_point = region.front();
             uint64_t index = first_point.first * img.cols + first_point.second;
