@@ -5,6 +5,7 @@
 #include <vector>
 #include <stack>
 #include <cassert>
+#include <limits>
 
 struct lessVec3b {
     bool operator()(cv::Vec3b const& lhs, cv::Vec3b const& rhs) const {
@@ -16,7 +17,6 @@ struct lessVec3b {
 
 typedef std::map<cv::Vec3b, uint64_t, lessVec3b> map_type;
 
-// https://stackoverflow.com/a/34734939/5008845
 void reduce_colors_kmeans(cv::Mat3b const& src, cv::Mat3b& dst, int num_colors,
                           std::vector<int>& labels, cv::Mat1f& colors,
                           map_type& palette) {
@@ -34,7 +34,8 @@ void reduce_colors_kmeans(cv::Mat3b const& src, cv::Mat3b& dst, int num_colors,
         data.at<float>(i, 1) = colors(label, 1);
         data.at<float>(i, 2) = colors(label, 2);
         cv::Vec3b color(colors(label, 0), colors(label, 1), colors(label, 2));
-        if (palette.count(color) == 0) {
+        auto it = palette.find(color);
+        if (it == palette.end()) {
             palette[color] = 1;
         } else {
             palette[color] += 1;
@@ -45,11 +46,9 @@ void reduce_colors_kmeans(cv::Mat3b const& src, cv::Mat3b& dst, int num_colors,
     reduced.convertTo(dst, CV_8U);
 }
 
-typedef std::pair<float, float> point_type;
-
 void print_color_numbers(cv::Mat3b& dst, int rows, int cols,
                          std::vector<int> const& labels,
-                         std::vector<point_type> const& centroids,
+                         std::vector<cv::Point2f> const& centroids,
                          cv::Mat1f const& colors, map_type& palette) {
     static const float font_scale = 1.0;
     static const float thickness = 0.5;
@@ -69,13 +68,10 @@ void print_color_numbers(cv::Mat3b& dst, int rows, int cols,
         auto color_id = (*it).second;
         std::cout << "region " << i << ": color_id " << color_id << std::endl;
 
-        cv::putText(dst, std::to_string(color_id),
-                    cv::Point(centroid.second, centroid.first),
+        cv::putText(dst, std::to_string(color_id), centroid,
                     cv::FONT_HERSHEY_PLAIN, font_scale, CV_RGB(255, 0, 0),
                     thickness);
-
-        // cv::circle(dst, cv::Point(centroid.second, centroid.first), 8,
-        //            cv::Scalar(0, 255, 0), -1);
+        // cv::circle(dst, centroid, 8, cv::Scalar(0, 255, 0), -1);
     }
 }
 
@@ -92,26 +88,24 @@ void reshape2d(std::vector<int> const& labels,
 
 void visit(std::vector<std::vector<int>> const& labels2d, int r, int c,
            int label, std::vector<std::vector<bool>>& visited,
-           std::vector<point_type>& region) {
+           std::vector<cv::Point2f>& region) {
     assert(r >= 0);
     assert(c >= 0);
     assert(r < labels2d.size());
     assert(c < labels2d[0].size());
-    // std::cout << "visiting [" << r << "," << c << "]" << std::endl;
     assert(labels2d[r][c] == label);
 
     if (visited[r][c]) return;
-    // visited[r][c] = true;
 
     // visit neighbours if they are unvisited and have the same label
 
-    std::stack<point_type> queue;
+    std::stack<cv::Point2f> queue;
     queue.emplace(r, c);
 
     while (!queue.empty()) {
         auto point = queue.top();
-        r = point.first;
-        c = point.second;
+        r = point.x;
+        c = point.y;
         queue.pop();
         if (!visited[r][c]) {
             visited[r][c] = true;
@@ -170,7 +164,7 @@ void visit(std::vector<std::vector<int>> const& labels2d, int r, int c,
 }
 
 void visit(std::vector<std::vector<int>> const& labels2d,
-           std::vector<std::vector<point_type>>& regions) {
+           std::vector<std::vector<cv::Point2f>>& regions) {
     int num_rows = labels2d.size();
     int num_cols = labels2d[0].size();
 
@@ -180,7 +174,7 @@ void visit(std::vector<std::vector<int>> const& labels2d,
 
     for (int r = 0; r != num_rows; ++r) {
         for (int c = 0; c != num_cols; ++c) {
-            std::vector<point_type> region;
+            std::vector<cv::Point2f> region;
             int label = labels2d[r][c];
             visit(labels2d, r, c, label, visited, region);
             if (region.size() > 0) { regions.push_back(region); }
@@ -188,53 +182,50 @@ void visit(std::vector<std::vector<int>> const& labels2d,
     }
 }
 
-point_type compute_centroid(int rows, int cols, uint64_t i,
-                            std::vector<point_type> const& region) {
+cv::Point2f compute_centroid(int rows, int cols, uint64_t i,
+                             std::vector<cv::Point2f> const& region) {
     cv::Mat3b tmp(rows, cols);
     tmp.setTo(cv::Scalar(0, 0, 0));
     for (auto point : region) {
-        tmp.at<cv::Vec3b>(point.first, point.second) = cv::Vec3b(255, 255, 255);
+        tmp.at<cv::Vec3b>(point.x, point.y) = cv::Vec3b(255, 255, 255);
     }
 
     // NOTE: the solution based on moments can fail to place the centroid inside
-    // the region cv::Mat tmp2 = tmp; cv::Mat gray; cv::cvtColor(tmp2, gray,
-    // cv::COLOR_BGR2GRAY); cv::Moments m = cv::moments(gray, true); cv::Point
-    // center(m.m10 / m.m00, m.m01 / m.m00); std::cout << cv::Mat(center) <<
-    // std::endl; cv::circle(tmp2, center, 8, cv::Scalar(0, 0, 255), -1);
-    // imwrite("./annotated" + std::to_string(i) + ".jpeg", tmp2);
+    // the region
+    // cv::Mat gray; cv::cvtColor(tmp2, gray, cv::COLOR_BGR2GRAY);
+    // cv::Moments m = cv::moments(gray, true);
+    // cv::Point center(m.m10 / m.m00, m.m01 / m.m00);
+    // std::cout << cv::Mat(center) << std::endl;
+    // cv::circle(tmp2, center, 8, cv::Scalar(0, 0, 255), -1);
 
     int K = 10;
     if (region.size() < K) K = region.size();
-    const static int ITERATIONS = 1;
-    std::vector<cv::Point2f> data;
-    data.reserve(region.size());
-    for (auto p : region) { data.emplace_back(p.second, p.first); }
+    const static int ITERATIONS = 3;
     std::vector<int> labels;
     std::vector<cv::Point2f> centers;
     labels.reserve(region.size());
-    cv::kmeans(data, K, labels, cv::TermCriteria(), ITERATIONS,
+    cv::kmeans(region, K, labels, cv::TermCriteria(), ITERATIONS,
                cv::KMEANS_PP_CENTERS, centers);
 
-    uint64_t index = 0;
+    // choose the centroid that minimizes the inner-centroid distance
+    std::vector<double> distances;
+    distances.reserve(centers.size());
     for (auto p : centers) {
-        // cv::circle(tmp2, p, 8, cv::Scalar(0, 255, 0), -1);
-        // std::cout << p << std::endl;
-        if (tmp(p.x, p.y) == cv::Vec3b(0, 0, 0)) {
-            // std::cout << "point is in white region" << std::endl;
-            // cv::circle(tmp2, p, 8, cv::Scalar(0, 255, 0), -1);
-            break;
-        }
-        // else {
-        //     std::cout << "point is in BLACK region" << std::endl;
-        // }
-        ++index;
+        double sum = 0.0;
+        for (auto q : centers) sum += cv::norm(p - q);
+        distances.push_back(sum);
     }
+    uint64_t index = std::min_element(distances.begin(), distances.end()) -
+                     distances.begin();
 
+    // imwrite("./annotated" + std::to_string(i) + ".jpeg", tmp);
+
+    assert(index < centers.size());
     auto center = centers[index];
     return {center.y, center.x};
 }
 
-// point_type compute_centroid(std::vector<point_type> const& polygon) {
+// cv::Point2f compute_centroid(std::vector<cv::Point2f> const& polygon) {
 //     double sum_x = 0.0;
 //     double sum_y = 0.0;
 //     for (auto x : polygon) {
@@ -263,23 +254,25 @@ void auto_canny(cv::Mat3b& src, cv::Mat& canny, std::string const& filename) {
 }
 
 int main(int argc, char** argv) {
-    if (argc < 4) {
-        std::cout << argv[0] << " [path_to_file] [num_colors] [blur_level]"
+    if (argc < 1 + 4) {
+        std::cout << argv[0]
+                  << " [path_to_file] [num_colors] [blur_level] [scale_factor]"
                   << std::endl;
         return 1;
     }
 
     std::string filename(argv[1]);
     int num_colors = std::atoi(argv[2]);
-    int blur_level = std::atoi(
-        argv[3]);  // typical values are 7, 9, or larger for bigger images
+    int blur_level = std::atoi(argv[3]);
     cv::Mat3b read = cv::imread(argv[1]);
+    float scale_factor = std::stof(argv[4]);
 
-    // by enlarging the image, we need more blur
+    // resize the image
     cv::Mat3b img;
-    cv::resize(read, img, cv::Size(), 2.0, 2.0);
+    cv::resize(read, img, cv::Size(), scale_factor, scale_factor);
 
     // smooth image to remove noise
+    // typical values are 7, 9, or larger for bigger images
     cv::Mat3b blurred;
     cv::medianBlur(img, blurred, blur_level);
 
@@ -295,6 +288,7 @@ int main(int argc, char** argv) {
     reduce_colors_kmeans(filtered, reduced, num_colors, labels, colors,
                          palette);
 
+    // write palette
     static const double MIN_AREA = 0.1;
     std::cout << "rows: " << img.rows << std::endl;
     std::cout << "cols: " << img.cols << std::endl;
@@ -342,9 +336,9 @@ int main(int argc, char** argv) {
     std::vector<std::vector<int>> labels2d;
     reshape2d(labels, labels2d, img.rows, img.cols);
 
-    std::vector<std::vector<point_type>> regions;
+    // calculate regions
+    std::vector<std::vector<cv::Point2f>> regions;
     visit(labels2d, regions);
-
     std::cout << "visit done!" << std::endl;
 
     // Canny's edge detection
@@ -352,9 +346,11 @@ int main(int argc, char** argv) {
     auto_canny(reduced, canny, filename);
     cv::imwrite(filename + ".canny.jpeg", canny);
     cv::imwrite(filename + ".toonified.jpeg", reduced);
-    cv::Mat3b canny2 = cv::imread((filename + ".canny.jpeg").c_str());
+    cv::Mat3b canny3b = cv::imread((filename + ".canny.jpeg").c_str());
+    // cv::Mat3b canny3b = canny;
 
-    std::vector<point_type> centroids;
+    // calculate centroids of regions
+    std::vector<cv::Point2f> centroids;
     centroids.reserve(regions.size());
     std::vector<int> final_labels;
     final_labels.reserve(regions.size());
@@ -371,12 +367,8 @@ int main(int argc, char** argv) {
             auto centroid = compute_centroid(img.rows, img.cols, i, region);
             centroids.push_back(centroid);
             auto first_point = region.front();
-            uint64_t index = first_point.first * img.cols + first_point.second;
+            uint64_t index = first_point.x * img.cols + first_point.y;
             int label = labels[index];
-
-            // for (auto p : region) {
-            //     assert(labels[p.first * img.cols + p.second] == label);
-            // }
 
             final_labels.push_back(label);
 
@@ -388,10 +380,9 @@ int main(int argc, char** argv) {
 
             // static const float font_scale = 1.0;
             // static const float thickness = 0.5;
-            // cv::Mat3b tmp = canny2.clone();
+            // cv::Mat3b tmp = canny3b.clone();
             // for (auto point : region) {
-            //     tmp.at<cv::Vec3b>(point.first, point.second) =
-            //         cv::Vec3b(255, 0, 0);
+            //     tmp.at<cv::Vec3b>(point.x, point.y) = cv::Vec3b(255, 0, 0);
             // }
             // imwrite("./annotated" + std::to_string(i) + ".jpeg", tmp);
         }
@@ -400,10 +391,10 @@ int main(int argc, char** argv) {
     assert(sum == area);
     std::cout << "#ignore " << sum << std::endl;
 
-    cv::Mat3b annotated = canny2.clone();
-    print_color_numbers(annotated, img.rows, img.cols, final_labels, centroids,
+    // annotate image with colors' numbers
+    print_color_numbers(canny3b, img.rows, img.cols, final_labels, centroids,
                         colors, palette);
-    imwrite(filename + ".annotated.jpeg", annotated);
+    imwrite(filename + ".annotated.jpeg", canny3b);
 
     return 0;
 }
