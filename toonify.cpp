@@ -303,7 +303,7 @@ int main(int argc, char** argv) {
     static const uint64_t PALETTE_SIZE = 150;
     static const uint64_t OFFSET = 50;
     // Print palette and assing color id
-    cv::Mat3b palette_img(count * PALETTE_SIZE, PALETTE_SIZE + OFFSET);
+    cv::Mat3b palette_img(PALETTE_SIZE + OFFSET, count * PALETTE_SIZE);
     palette_img.setTo(cv::Scalar(255, 255, 255));
     uint64_t id = 1;
     for (auto& color : palette) {
@@ -319,13 +319,15 @@ int main(int argc, char** argv) {
             uint64_t base = (id - 1) * PALETTE_SIZE;
             for (uint64_t i = 0; i != PALETTE_SIZE; ++i) {
                 for (uint64_t j = 0; j != PALETTE_SIZE; ++j) {
-                    palette_img.at<cv::Vec3b>(base + i, j + OFFSET) =
+                    palette_img.at<cv::Vec3b>(j + OFFSET, base + i) =
                         color.first;
                 }
-                cv::putText(palette_img, std::to_string(id),
-                            cv::Point(0, base + PALETTE_SIZE / 2),
-                            cv::FONT_HERSHEY_PLAIN, 2, CV_RGB(0, 0, 0), 2);
             }
+
+            cv::putText(
+                palette_img, std::to_string(id),
+                cv::Point(base + PALETTE_SIZE / 2 - 10, OFFSET / 2 + 10),
+                cv::FONT_HERSHEY_PLAIN, 2, CV_RGB(0, 0, 0), 2);
 
             id += 1;
         }
