@@ -182,13 +182,14 @@ void visit(std::vector<std::vector<int>> const& labels2d,
     }
 }
 
-cv::Point2f compute_centroid(int rows, int cols, uint64_t i,
-                             std::vector<cv::Point2f> const& region) {
-    cv::Mat3b tmp(rows, cols);
-    tmp.setTo(cv::Scalar(0, 0, 0));
-    for (auto point : region) {
-        tmp.at<cv::Vec3b>(point.x, point.y) = cv::Vec3b(255, 255, 255);
-    }
+cv::Point2f compute_centroid(  // int rows, int cols, uint64_t i,
+    std::vector<cv::Point2f> const& region) {
+    // cv::Mat3b tmp(rows, cols);
+    // tmp.setTo(cv::Scalar(0, 0, 0));
+    // for (auto point : region) {
+    //     tmp.at<cv::Vec3b>(point.x, point.y) = cv::Vec3b(255, 255, 255);
+    // }
+    // imwrite("./annotated" + std::to_string(i) + ".jpeg", tmp);
 
     // NOTE: the solution based on moments can fail to place the centroid inside
     // the region
@@ -217,8 +218,6 @@ cv::Point2f compute_centroid(int rows, int cols, uint64_t i,
     }
     uint64_t index = std::min_element(distances.begin(), distances.end()) -
                      distances.begin();
-
-    // imwrite("./annotated" + std::to_string(i) + ".jpeg", tmp);
 
     assert(index < centers.size());
     auto center = centers[index];
@@ -362,11 +361,10 @@ int main(int argc, char** argv) {
         auto const& region = regions[i];
         sum += region.size();
         double color_area = (region.size() * 100.0) / area;
-        // std::cout << color_area << std::endl;
         if (color_area > MIN_AREA / 10) {
             // std::cout << region.size() << " points in region" << std::endl;
-            // auto centroid = compute_centroid(region);
-            auto centroid = compute_centroid(img.rows, img.cols, i, region);
+            // auto centroid = compute_centroid(img.rows, img.cols, i, region);
+            auto centroid = compute_centroid(region);
             centroids.push_back(centroid);
             auto first_point = region.front();
             uint64_t index = first_point.x * img.cols + first_point.y;
